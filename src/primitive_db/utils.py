@@ -2,8 +2,11 @@
 """Вспомогательные функции"""
 
 import json
+import os
 from typing import Any
 
+
+DATA_DIR = "data"
 
 def load_metadata(file_path: str) -> dict[str, Any]:
     try:
@@ -14,4 +17,26 @@ def load_metadata(file_path: str) -> dict[str, Any]:
 
 def save_metadata(file_path: str, data: dict[str, Any]) -> None:
     with open(file_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def load_table_data(table_name: str) -> list[dict]:
+    path = os.path.join(DATA_DIR, f"{table_name}.json")
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+            if not isinstance(data, list):
+                return []
+
+            if data and not isinstance(data[0], dict):
+                return []
+            return data
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+def save_table_data(table_name: str, data: list[dict]) -> None:
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+
+    path = os.path.join(DATA_DIR, f"{table_name}.json")
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
