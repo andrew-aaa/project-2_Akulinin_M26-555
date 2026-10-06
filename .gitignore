@@ -1,11 +1,12 @@
- .venv
-
- dist/
- build/
- *.egg-info
+.venv
+dist/
+build/
+*.egg-info
  
-  __pycache__/
-  src/primitive_db/__pycache__/
-  *.py[cod]
+__pycache__/
+*.py[cod]
+.ruff_cache/
 
-  .ruff_cache/
+db_meta.json
+data/
+*.cast

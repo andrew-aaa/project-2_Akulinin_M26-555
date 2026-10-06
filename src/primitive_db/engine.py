@@ -1,32 +1,38 @@
 #!/usr/bin/env python3
-"""project"""
+"""Главный интерактивный цикл обработки пользовательского ввода"""
 
 import shlex
-from prompt_toolkit import prompt
+
 from prettytable import PrettyTable
+from prompt_toolkit import prompt
+
 from primitive_db.core import (
     create_table,
-    drop_table,
-    list_tables,
-    insert,
-    select,
-    update,
     delete,
-    table_info
+    drop_table,
+    insert,
+    list_tables,
+    select,
+    table_info,
+    update,
 )
-from primitive_db.parser import (
-    parse_insert,
-    parse_select,
-    parse_update,
-    parse_delete
-)
-from primitive_db.utils import DB_FILE, load_metadata, save_metadata, load_table_data, save_table_data
 from primitive_db.decorators import create_cacher
+from primitive_db.parser import parse_delete, parse_insert, parse_select, parse_update
+from primitive_db.utils import (
+    load_metadata,
+    load_table_data,
+    save_metadata,
+    save_table_data,
+)
 
+from .constants import META_FILE
 
 db_cacher = create_cacher()
 
+
 def print_help() -> None:
+    """Выводит справочную информацию по доступным командам"""
+
     print("\n***Операции с данными***")
     print("\nФункции:")
     print(" insert into  values (, , ...) - создать запись.")
@@ -38,15 +44,18 @@ def print_help() -> None:
     print(" create_table   .. - создать таблицу")
     print(" list_tables - показать список всех таблиц")
     print(" drop_table  - удалить таблицу")
-    
+
     print("\n-  exit - выход из программы")
     print("-  help - справочная информация\n")
 
+
 def run() -> None:
+    """Запускает цикл взаимодействия с БД"""
+
     print_help()
 
     while True:
-        metadata = load_metadata(DB_FILE)
+        metadata = load_metadata(META_FILE)
 
         try:
             user_input = prompt(">>> Введите команду: ").strip()
@@ -67,7 +76,7 @@ def run() -> None:
                     continue
                 res = create_table(metadata, args[1], args[2:])
                 if res is not None:
-                    save_metadata(DB_FILE, metadata)
+                    save_metadata(META_FILE, metadata)
 
             elif command == "drop_table":
                 args = shlex.split(user_input)
@@ -76,7 +85,7 @@ def run() -> None:
                     continue
                 res = drop_table(metadata, args[1])
                 if res is not None:
-                    save_metadata(DB_FILE, metadata)
+                    save_metadata(META_FILE, metadata)
                     db_cacher.clear()
 
             elif command == "list_tables":
@@ -96,13 +105,20 @@ def run() -> None:
                     table_data, new_id = res
                     save_table_data(table_name, table_data)
                     db_cacher.clear()
-                    print(f'Запись с ID={new_id} успешно добавлена в таблицу "{table_name}"')
+                    print(
+                        f'Запись с ID={new_id} успешно добавлена в таблицу "{table_name}"'
+                    )
 
             elif command == "select":
                 table_name, col, val = parse_select(user_input)
                 table_data = load_table_data(table_name)
                 cache_key = (table_name, col, val, str(table_data))
-                records = db_cacher(cache_key, lambda: select(table_data, metadata, table_name, col, val))
+                records = db_cacher(
+                    cache_key,
+                    lambda td=table_data, md=metadata, tn=table_name, c=col, v=val: select(
+                        td, md, tn, c, v
+                    ),
+                )
                 if records is not None:
                     pt = PrettyTable()
                     cols = [c["name"] for c in metadata[table_name]]
@@ -113,7 +129,9 @@ def run() -> None:
                     print(pt)
 
             elif command == "update":
-                table_name, set_col, set_val, where_col, where_val = (parse_update(user_input))
+                table_name, set_col, set_val, where_col, where_val = parse_update(
+                    user_input
+                )
                 table_data = load_table_data(table_name)
                 res = update(
                     table_data,
@@ -130,7 +148,9 @@ def run() -> None:
                     db_cacher.clear()
                     if updated_ids:
                         for uid in updated_ids:
-                            print(f'Запись с ID={uid} в таблице "{table_name}" успешно обновлена')
+                            print(
+                                f'Запись с ID={uid} в таблице "{table_name}" успешно обновлена'
+                            )
                     else:
                         print("Подходящих записей для обновления не найдено")
 
@@ -144,7 +164,9 @@ def run() -> None:
                     db_cacher.clear()
                     if deleted_ids:
                         for uid in deleted_ids:
-                            print(f'Запись с ID={uid} успешно удалена из таблицы "{table_name}"')
+                            print(
+                                f'Запись с ID={uid} успешно удалена из таблицы "{table_name}"'
+                            )
                     else:
                         print("Подходящих записей для удаления не найдено.")
 

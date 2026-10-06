@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Основаная логика с БД"""
+"""Основная бизнес-логика работы с таблицами и записями"""
 
 import os
 from typing import Any
+
+from .constants import DATA_DIR, VALID_TYPES
 from .decorators import confirm_action, handle_db_errors, log_time
 from .parser import cast_type
-from .utils import DATA_DIR
 
-
-VALID_TYPES = {"int", "str", "bool"}
 
 @handle_db_errors
 def create_table(metadata: dict, table_name: str, columns: list[str]) -> dict:
+    """Создает новую таблицу и обновляет метаданные"""
+
     if table_name in metadata:
         raise ValueError(f'Таблица "{table_name}" уже существует')
 
@@ -22,9 +23,7 @@ def create_table(metadata: dict, table_name: str, columns: list[str]) -> dict:
 
         name, dtype = col.split(":")
         if dtype not in VALID_TYPES:
-            raise ValueError(
-                f"Неподдерживаемый тип '{dtype}' для столбца '{name}'"
-            )
+            raise ValueError(f"Неподдерживаемый тип '{dtype}' для столбца '{name}'")
 
         parsed.append({"name": name, "type": dtype})
 
@@ -33,13 +32,16 @@ def create_table(metadata: dict, table_name: str, columns: list[str]) -> dict:
 
     metadata[table_name] = parsed
 
-    display = ", ".join(f'{c["name"]}:{c["type"]}' for c in parsed)
+    display = ", ".join(f"{c['name']}:{c['type']}" for c in parsed)
     print(f'Таблица "{table_name}" успешно создана со столбцами: {display}')
     return metadata
+
 
 @handle_db_errors
 @confirm_action("удаление таблицы")
 def drop_table(metadata: dict, table_name: str) -> dict:
+    """Удаляет таблицу из метаданных и связанный файл данных"""
+
     if table_name not in metadata:
         raise KeyError(table_name)
 
@@ -52,7 +54,10 @@ def drop_table(metadata: dict, table_name: str) -> dict:
     print(f'Таблица "{table_name}" успешно удалена')
     return metadata
 
+
 def list_tables(metadata: dict) -> None:
+    """Выводит список существующих таблиц"""
+
     if not metadata:
         print("Таблиц нет")
         return
@@ -60,11 +65,14 @@ def list_tables(metadata: dict) -> None:
     for name in metadata:
         print(f"- {name}")
 
+
 @handle_db_errors
 @log_time
 def insert(
     metadata: dict, table_name: str, table_data: list[dict], values: list[str]
 ) -> tuple[list[dict], int]:
+    """Добавляет новую запись в таблицу с генерацией автоинкрементного ID"""
+
     if table_name not in metadata:
         raise KeyError(table_name)
 
@@ -84,6 +92,7 @@ def insert(
     table_data.append(new_record)
     return table_data, new_id
 
+
 @handle_db_errors
 @log_time
 def select(
@@ -93,6 +102,8 @@ def select(
     where_col: str | None = None,
     where_val_str: str | None = None,
 ) -> list[dict]:
+    """Выбирает записи из таблицы по опциональному условию"""
+
     if table_name not in metadata:
         raise KeyError(table_name)
 
@@ -109,6 +120,7 @@ def select(
     where_val = cast_type(where_val_str, col_type)
     return [row for row in table_data if row.get(where_col) == where_val]
 
+
 @handle_db_errors
 def update(
     table_data: list[dict],
@@ -119,6 +131,8 @@ def update(
     where_col: str,
     where_val_str: str,
 ) -> tuple[list[dict], list[int]]:
+    """Обновляет записи в таблице по заданному условию"""
+
     if table_name not in metadata:
         raise KeyError(table_name)
 
@@ -146,6 +160,7 @@ def update(
 
     return table_data, updated_ids
 
+
 @handle_db_errors
 @confirm_action("удаление записи")
 def delete(
@@ -155,6 +170,8 @@ def delete(
     where_col: str,
     where_val_str: str,
 ) -> tuple[list[dict], list[int]]:
+    """Удаляет записи из таблицы по условию"""
+
     if table_name not in metadata:
         raise KeyError(table_name)
 
@@ -177,12 +194,15 @@ def delete(
 
     return new_data, deleted_ids
 
+
 @handle_db_errors
 def table_info(metadata: dict, table_name: str, table_data: list[dict]) -> None:
+    """Выводит сводную информацию о структуре и количестве записей в таблице"""
+
     if table_name not in metadata:
         raise KeyError(table_name)
 
-    cols = ", ".join(f'{c["name"]}:{c["type"]}' for c in metadata[table_name])
+    cols = ", ".join(f"{c['name']}:{c['type']}" for c in metadata[table_name])
     print(f"Таблица: {table_name}")
     print(f"Столбцы: {cols}")
     print(f"Количество записей: {len(table_data)}")

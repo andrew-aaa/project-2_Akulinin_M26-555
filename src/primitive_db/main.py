@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""main"""
+"""Точка входа в приложение"""
 
 from primitive_db.engine import run
 
 
 def main() -> None:
+    """Точка запуска базы данных"""
+
     run()
 
 
