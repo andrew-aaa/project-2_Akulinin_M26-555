@@ -5,8 +5,6 @@ import shlex
 from prompt_toolkit import prompt
 from prettytable import PrettyTable
 from primitive_db.core import (
-    DBError,
-    InvalidValueError,
     create_table,
     drop_table,
     list_tables,
@@ -22,11 +20,11 @@ from primitive_db.parser import (
     parse_update,
     parse_delete
 )
-from primitive_db.utils import load_metadata, save_metadata, load_table_data, save_table_data
+from primitive_db.utils import DB_FILE, load_metadata, save_metadata, load_table_data, save_table_data
+from primitive_db.decorators import create_cacher
 
 
-DB_FILE = "db_meta.json"
-
+db_cacher = create_cacher()
 
 def print_help() -> None:
     print("\n***Операции с данными***")
@@ -44,14 +42,14 @@ def print_help() -> None:
     print("\n-  exit - выход из программы")
     print("-  help - справочная информация\n")
 
-
 def run() -> None:
     print_help()
+
     while True:
         metadata = load_metadata(DB_FILE)
 
         try:
-            user_input = prompt(">>>ВВедите команду: ").strip()
+            user_input = prompt(">>> Введите команду: ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             return
@@ -60,20 +58,26 @@ def run() -> None:
             continue
 
         command = user_input.split()[0].lower()
+
         try:
             if command == "create_table":
                 args = shlex.split(user_input)
                 if len(args) < 3:
-                    raise InvalidValueError(user_input)
-                create_table(metadata, args[1], args[2:])
-                save_metadata(DB_FILE, metadata)
+                    print(f"Некорректная команда: {user_input}")
+                    continue
+                res = create_table(metadata, args[1], args[2:])
+                if res is not None:
+                    save_metadata(DB_FILE, metadata)
 
             elif command == "drop_table":
                 args = shlex.split(user_input)
                 if len(args) != 2:
-                    raise InvalidValueError(user_input)
-                drop_table(metadata, args[1])
-                save_metadata(DB_FILE, metadata)
+                    print(f"Некорректная команда: {user_input}")
+                    continue
+                res = drop_table(metadata, args[1])
+                if res is not None:
+                    save_metadata(DB_FILE, metadata)
+                    db_cacher.clear()
 
             elif command == "list_tables":
                 list_tables(metadata)
@@ -86,71 +90,75 @@ def run() -> None:
 
             elif command == "insert":
                 table_name, values = parse_insert(user_input)
-                if table_name not in metadata:
-                    raise DBError(f'Таблица "{table_name}" не существует')
                 table_data = load_table_data(table_name)
-                table_data, new_id = insert(metadata, table_name, table_data, values)
-                save_table_data(table_name, table_data)
-                print(f'Запись с ID={new_id} успешно добавлена в таблицу "{table_name}"')
+                res = insert(metadata, table_name, table_data, values)
+                if res is not None:
+                    table_data, new_id = res
+                    save_table_data(table_name, table_data)
+                    db_cacher.clear()
+                    print(f'Запись с ID={new_id} успешно добавлена в таблицу "{table_name}"')
 
             elif command == "select":
                 table_name, col, val = parse_select(user_input)
-                if table_name not in metadata:
-                    raise DBError(f'Таблица "{table_name}" не существует')
                 table_data = load_table_data(table_name)
-                if not isinstance(table_data, list):
-                    table_data = []
-                record = select(table_data, metadata, table_name, col, val)
-                pt = PrettyTable()
-                cols = [c["name"] for c in metadata[table_name]]
-                pt.field_names = cols
-                for row in record:
-                    pt.add_row([row.get(c, "None") for c in cols])
-                print(pt)
+                cache_key = (table_name, col, val, str(table_data))
+                records = db_cacher(cache_key, lambda: select(table_data, metadata, table_name, col, val))
+                if records is not None:
+                    pt = PrettyTable()
+                    cols = [c["name"] for c in metadata[table_name]]
+                    pt.field_names = cols
+                    for row in records:
+                        if isinstance(row, dict):
+                            pt.add_row([row.get(c, "None") for c in cols])
+                    print(pt)
 
             elif command == "update":
-                table_name, set_col, set_val, where_col, where_val = parse_update(user_input)
-                if table_name not in metadata: 
-                    raise DBError(f'Таблица "{table_name}" не существует')
+                table_name, set_col, set_val, where_col, where_val = (parse_update(user_input))
                 table_data = load_table_data(table_name)
-                table_data, updated_ids = update(table_data, metadata, table_name, set_col, set_val, where_col, where_val)
-                save_table_data(table_name, table_data)
-                if updated_ids:
-                    for uid in updated_ids:
-                        print(f'Запись с ID={uid} в таблице "{table_name}" успешно обновлена')
-                else:
-                    print("Подходящих записей для обновления не найдено")
+                res = update(
+                    table_data,
+                    metadata,
+                    table_name,
+                    set_col,
+                    set_val,
+                    where_col,
+                    where_val,
+                )
+                if res is not None:
+                    table_data, updated_ids = res
+                    save_table_data(table_name, table_data)
+                    db_cacher.clear()
+                    if updated_ids:
+                        for uid in updated_ids:
+                            print(f'Запись с ID={uid} в таблице "{table_name}" успешно обновлена')
+                    else:
+                        print("Подходящих записей для обновления не найдено")
 
             elif command == "delete":
                 table_name, where_col, where_val = parse_delete(user_input)
-                if table_name not in metadata:
-                    raise DBError(f'Таблица "{table_name}" не существует')
                 table_data = load_table_data(table_name)
-                table_data, deleted_ids = delete(table_data, metadata, table_name, where_col, where_val)
-                save_table_data(table_name, table_data)
-                if deleted_ids:
-                    for uid in deleted_ids:
-                        print(f'Запись с ID={uid} успешно удалена из таблицы "{table_name}"')
-                else:
-                    print("Подходящих записей для удаления не найдено")
+                res = delete(table_data, metadata, table_name, where_col, where_val)
+                if res is not None:
+                    table_data, deleted_ids = res
+                    save_table_data(table_name, table_data)
+                    db_cacher.clear()
+                    if deleted_ids:
+                        for uid in deleted_ids:
+                            print(f'Запись с ID={uid} успешно удалена из таблицы "{table_name}"')
+                    else:
+                        print("Подходящих записей для удаления не найдено.")
 
             elif command == "info":
                 args = shlex.split(user_input)
-                if len(args) != 2: 
-                    raise InvalidValueError(user_input)
+                if len(args) != 2:
+                    print(f"Некорректная команда: {user_input}")
+                    continue
                 table_name = args[1]
-                if table_name not in metadata:
-                    raise DBError(f'Таблица "{table_name}" не существует')
                 table_data = load_table_data(table_name)
                 table_info(metadata, table_name, table_data)
 
             else:
                 print(f"Функции {command} нет. Попробуйте снова")
 
-        except DBError as e:
-            print(f"Ошибка: {e}")
         except ValueError as e:
-            print(f"Ошибка: {e}")
-        except InvalidValueError as e:
-            print(f"Некорректное значение: {e.value}. Попробуйте снова")
-
+            print(f"Ошибка парсинга команды: {e}")
